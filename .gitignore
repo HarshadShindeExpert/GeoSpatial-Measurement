@@ -1,0 +1,31 @@
+# Python / Virtualenv
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+*.db
+*.sqlite
+*.sqlite3
+
+# Node / React
+node_modules/
+dist/
+.vite/
+npm-debug.log*
+
+# Storage & Uploads
+backend/storage/uploads/*
+!backend/storage/uploads/.gitkeep
+backend/geospatial.db
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Pytest
+.pytest_cache/
+.coverage
+htmlcov/

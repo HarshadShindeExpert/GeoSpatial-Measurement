@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>Survey Parcels and Tracks</name>
+    <description>Sample GIS features for measurement testing</description>
+    
+    <Placemark>
+      <name>Central Farm Parcel</name>
+      <description>Agricultural land polygon</description>
+      <Polygon>
+        <outerBoundaryIs>
+          <LinearRing>
+            <coordinates>
+              77.2090,28.6139,0
+              77.2150,28.6139,0
+              77.2150,28.6190,0
+              77.2090,28.6190,0
+              77.2090,28.6139,0
+            </coordinates>
+          </LinearRing>
+        </outerBoundaryIs>
+      </Polygon>
+    </Placemark>
+
+    <Placemark>
+      <name>Irrigation Canal</name>
+      <description>Linear water canal</description>
+      <LineString>
+        <coordinates>
+          77.2000,28.6100,0
+          77.2050,28.6150,0
+          77.2100,28.6200,0
+          77.2200,28.6250,0
+        </coordinates>
+      </LineString>
+    </Placemark>
+
+    <Placemark>
+      <name>Weather Station Alpha</name>
+      <description>Point location monitoring station</description>
+      <Point>
+        <coordinates>77.2100,28.6160,0</coordinates>
+      </Point>
+    </Placemark>
+  </Document>
+</kml>
