@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 from app.config import settings
 from app.database import init_db
 from app.api.router import api_router
+from app.security import SecurityHeadersMiddleware, RateLimiterMiddleware
 
 # Configure logging
 logging.basicConfig(
@@ -26,14 +27,20 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
-    description="Production-grade REST API for uploading, processing, and calculating metric measurements (Area, Length) of geospatial features from Shapefiles (.zip) and KML (.kml) files.",
+    description="Production-grade REST API for uploading, processing, and calculating metric measurements (Area, Length) of geospatial features from Shapefiles (.zip) and KML (.kml) files with built-in Cyber Security Protection.",
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
     docs_url=f"{settings.API_V1_STR}/docs",
     redoc_url=f"{settings.API_V1_STR}/redoc",
     lifespan=lifespan
 )
 
-# CORS middleware
+# 1. Security Headers Middleware (CSP, X-Frame-Options, X-Content-Type-Options)
+app.add_middleware(SecurityHeadersMiddleware)
+
+# 2. Rate Limiting Middleware (DoS Protection)
+app.add_middleware(RateLimiterMiddleware, requests_per_minute=120, upload_limit_per_minute=20)
+
+# 3. CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,

@@ -1,10 +1,7 @@
 import os
-import zipfile
 import tempfile
 import json
 import logging
-import uuid
-import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Tuple, List, Dict, Any, Optional
 import geopandas as gpd
@@ -18,13 +15,14 @@ from app.models.file_record import FileRecord, ProcessingStatus
 from app.models.feature_record import FeatureRecord, MeasurementStatus
 from app.services.crs_service import CRSService
 from app.services.measurement_service import MeasurementService
+from app.security import SecurityValidator, InputSanitizer
 from app.config import settings
 
 logger = logging.getLogger("geospatial.processor")
 
 def sanitize_properties(props: dict) -> dict:
     """
-    Sanitizes dictionary properties for JSON serialization (converting numpy/pandas types).
+    Sanitizes dictionary properties for JSON serialization and XSS security.
     """
     sanitized = {}
     for k, v in props.items():
@@ -40,7 +38,9 @@ def sanitize_properties(props: dict) -> dict:
             sanitized[k] = v.decode("utf-8", errors="ignore")
         else:
             sanitized[k] = str(v)
-    return sanitized
+            
+    # Apply XSS InputSanitizer to neutralize executable HTML/JS payloads
+    return InputSanitizer.sanitize_dict(sanitized)
 
 class FileProcessor:
     def __init__(self, db: AsyncSession):
@@ -159,7 +159,7 @@ class FileProcessor:
 
     def _load_geodataframe(self, file_path: Path, file_type: str) -> gpd.GeoDataFrame:
         """
-        Loads Shapefiles (.zip) or KML (.kml) into a GeoPandas GeoDataFrame.
+        Loads Shapefiles (.zip) or KML (.kml) into a GeoPandas GeoDataFrame with Security Guards.
         """
         file_ext = file_path.suffix.lower()
 
@@ -172,12 +172,13 @@ class FileProcessor:
 
     def _read_shapefile_zip(self, zip_path: Path) -> gpd.GeoDataFrame:
         """
-        Extracts zip file and reads main .shp file using GeoPandas.
+        Safely extracts zip file with Zip-Slip path traversal protection and reads Shapefile.
         """
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                zip_ref.extractall(tmp_path)
+            
+            # Security Check: Zip-Slip path traversal protection
+            SecurityValidator.safe_extract_zip(zip_path, tmp_path)
 
             shp_files = list(tmp_path.rglob("*.shp"))
             if not shp_files:
@@ -190,7 +191,7 @@ class FileProcessor:
 
     def _read_kml(self, kml_path: Path) -> gpd.GeoDataFrame:
         """
-        Reads KML file using GeoPandas or fallback XML ElementTree parser.
+        Reads KML file using GeoPandas or safe defusedxml parser.
         """
         try:
             import fiona
@@ -201,21 +202,18 @@ class FileProcessor:
             if gdf is not None and not gdf.empty:
                 return gdf
         except Exception as err:
-            logger.info(f"GeoPandas/Fiona direct KML read note: {err}. Using built-in KML parser.")
+            logger.info(f"GeoPandas/Fiona direct KML read note: {err}. Using safe defusedxml parser.")
 
         return self._parse_kml_xml(kml_path)
 
     def _parse_kml_xml(self, kml_path: Path) -> gpd.GeoDataFrame:
         """
-        Custom robust XML parser for KML Placemarks (Polygon, LineString, Point).
+        Safe XML parser for KML Placemarks protecting against XXE attacks via defusedxml.
         """
-        tree = ET.parse(kml_path)
-        root = tree.getroot()
+        root = SecurityValidator.safe_parse_kml_xml(kml_path)
 
-        # Helper function to find element regardless of namespace
         def find_elem(element, tag):
             for child in element.iter():
-                # Strip namespace: {http://...}tag -> tag
                 child_tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
                 if child_tag.lower() == tag.lower():
                     return child
@@ -240,6 +238,10 @@ class FileProcessor:
             
             name = name_elem.text if (name_elem is not None and name_elem.text) else f"Placemark {p_idx+1}"
             description = desc_elem.text if (desc_elem is not None and desc_elem.text) else ""
+
+            # Sanitize XSS strings
+            clean_name = InputSanitizer.sanitize_string(name)
+            clean_desc = InputSanitizer.sanitize_string(description)
 
             poly_elem = find_elem(p, 'Polygon')
             linestring_elem = find_elem(p, 'LineString')
@@ -280,8 +282,8 @@ class FileProcessor:
 
             if geom is not None:
                 features.append({
-                    "Name": name,
-                    "Description": description,
+                    "Name": clean_name,
+                    "Description": clean_desc,
                     "geometry": geom
                 })
 

@@ -1,6 +1,32 @@
 # Geospatial File Measurement API & Web Platform 🌍📏
 
-> A production-grade REST API and Web GIS platform built with **FastAPI**, **GeoPandas**, **PyProj**, **Shapely**, **SQLAlchemy (Async)**, and **React (TypeScript + Leaflet)** for uploading, processing, and measuring geospatial datasets (`.zip` Shapefiles and `.kml` files).
+> A production-grade REST API and Web GIS platform built with **FastAPI**, **GeoPandas**, **PyProj**, **Shapely**, **SQLAlchemy (Async)**, and **React (TypeScript + Leaflet)** for uploading, processing, and measuring geospatial datasets (`.zip` Shapefiles and `.kml` files), featuring an enterprise **Cyber Security Protection Layer**.
+
+---
+
+## 🔒 Cyber Security Protection Layer
+
+The platform is fortified with multi-layered cyber security controls guarding against OWASP Top 10 vulnerabilities:
+
+1. **File Header Magic Bytes Verification**:
+   - Inspects the raw initial bytes (`PK\x03\x04` for Zip archives, XML signatures for KML) before reading.
+   - Prevents MIME-spoofing and malicious binary uploads disguised with `.zip` or `.kml` extensions.
+2. **Zip Slip & Path Traversal Prevention**:
+   - Inspects all archive paths during extraction to prevent arbitrary file overwrites via `../` path traversal attacks.
+3. **XXE (XML External Entity) & XML Bomb Defense**:
+   - Uses `defusedxml` to parse KML files safely, neutralizing entity expansion, DTD attacks, and XML bomb DoS exploits.
+4. **XSS Payload Sanitization**:
+   - Neutralizes `<script>`, `javascript:`, and HTML tags in feature attributes, Placemark names, and descriptions prior to rendering in Leaflet UI popups.
+5. **Rate Limiting & DoS Mitigation**:
+   - Sliding-window rate-limiting middleware (`RateLimiterMiddleware`) caps requests per client IP (120 general requests/min, 20 uploads/min).
+6. **Hardened HTTP Security Headers**:
+   - `Content-Security-Policy (CSP)`
+   - `X-Frame-Options: DENY` (Clickjacking defense)
+   - `X-Content-Type-Options: nosniff` (MIME sniffing defense)
+   - `X-XSS-Protection: 1; mode=block`
+   - `Referrer-Policy: strict-origin-when-cross-origin`
+7. **Configurable API Key Layer**:
+   - Optional `X-API-Key` authentication header validation (`app/security/auth.py`).
 
 ---
 
@@ -52,8 +78,8 @@ In addition to planar UTM projection math, the service calculates geodesic ellip
 
 ```
 ┌─────────────────┐       ┌────────────────────┐       ┌────────────────────────┐
-│  Upload File    │ ───►  │  File Storage &    │ ───►  │    File Processor      │
-│  (.zip / .kml)  │       │  Validation        │       │  (Fiona / GeoPandas)   │
+│  Upload File    │ ───►  │ Security Validator │ ───►  │    File Processor      │
+│  (.zip / .kml)  │       │ (Magic bytes, Zip) │       │  (Fiona / GeoPandas)   │
 └─────────────────┘       └────────────────────┘       └────────────────────────┘
                                                                     │
                                                                     ▼
@@ -63,13 +89,12 @@ In addition to planar UTM projection math, the service calculates geodesic ellip
 └─────────────────┘       └────────────────────┘       └────────────────────────┘
 ```
 
-1. **API Layer (`app/api/endpoints/files.py`)**: Validates upload format/size, persists binary to storage directory, and instantiates async DB tracking record.
-2. **File Processing Engine (`app/services/file_processor.py`)**:
-   - For `.zip`: Unpacks Shapefile components (`.shp`, `.shx`, `.dbf`, `.prj`) to temporary isolated workspace, reads features with `geopandas.read_file()`.
-   - For `.kml`: Uses Fiona driver with fallback to custom ElementTree XML parser supporting namespaced Placemark elements.
-3. **CRS Service (`app/services/crs_service.py`)**: Detects source CRS, computes dataset centroid, determines optimal UTM projected CRS, and executes coordinate transformations.
-4. **Measurement Service (`app/services/measurement_service.py`)**: Repairs geometry if invalid, calculates planar area ($m^2$, ha, $km^2$) and length ($m$, $km$), computes geodesic metrics, and records status notes.
-5. **Persistence (`app/database.py` & `app/models/`)**: Stores file records and feature measurements relationally with SQLAlchemy 2.0 Async Engine.
+1. **API Layer (`app/api/endpoints/files.py`)**: Enforces rate limiting, validates upload format/size/magic bytes, persists binary to storage directory, and instantiates async DB tracking record.
+2. **Security & Validation Layer (`app/security/`)**: Validates magic bytes, checks for Zip-Slip traversal, safe-parses XML via `defusedxml`, and sanitizes attributes against XSS payloads.
+3. **File Processing Engine (`app/services/file_processor.py`)**: Unpacks Shapefile components or KML Placemarks safely.
+4. **CRS Service (`app/services/crs_service.py`)**: Detects source CRS, computes dataset centroid, determines optimal UTM projected CRS, and executes coordinate transformations.
+5. **Measurement Service (`app/services/measurement_service.py`)**: Repairs geometry if invalid, calculates planar area ($m^2$, ha, $km^2$) and length ($m$, $km$), computes geodesic metrics, and records status notes.
+6. **Persistence (`app/database.py` & `app/models/`)**: Stores file records and feature measurements relationally with SQLAlchemy 2.0 Async Engine.
 
 ---
 
@@ -77,7 +102,7 @@ In addition to planar UTM projection math, the service calculates geodesic ellip
 
 ### 1. Upload File
 `POST /api/files/`
-Uploads and processes a `.zip` Shapefile or `.kml` file.
+Uploads and processes a `.zip` Shapefile or `.kml` file with security magic-byte verification.
 
 **Request:** `multipart/form-data` with key `file`
 
@@ -100,137 +125,39 @@ Uploads and processes a `.zip` Shapefile or `.kml` file.
 `GET /api/files/{id}/`
 Returns metadata and status for an uploaded file.
 
-**Response (`200 OK`):**
-```json
-{
-  "id": "7e62054c5af9",
-  "filename": "survey.kml",
-  "file_type": ".kml",
-  "file_size": 1304,
-  "feature_count": 3,
-  "crs": "EPSG:4326",
-  "projected_crs": "EPSG:32643",
-  "status": "COMPLETED",
-  "error_message": null,
-  "created_at": "2026-10-07T11:37:38.011Z"
-}
-```
-
 ---
 
 ### 3. Feature Measurements
 `GET /api/files/{id}/measurements/`
 Returns metric measurements and aggregate statistics for all features.
 
-**Response (`200 OK`):**
-```json
-{
-  "file_id": "7e62054c5af9",
-  "filename": "survey.kml",
-  "crs": "EPSG:4326",
-  "projected_crs": "EPSG:32643",
-  "summary": {
-    "total_features": 3,
-    "polygon_count": 1,
-    "linestring_count": 1,
-    "point_count": 1,
-    "other_count": 0,
-    "total_area_sq_m": 37210.45,
-    "total_area_hectares": 3.721045,
-    "total_area_sq_km": 0.03721,
-    "total_length_m": 2450.12,
-    "total_length_km": 2.45012
-  },
-  "features": [
-    {
-      "feature_index": 0,
-      "feature_id": "Central Farm Parcel",
-      "geometry_type": "Polygon",
-      "crs": "EPSG:4326",
-      "measurement_status": "CALCULATED",
-      "area": {
-        "sq_meters": 37210.45,
-        "hectares": 3.721045,
-        "sq_km": 0.03721
-      },
-      "length": {
-        "meters": 772.3,
-        "kilometers": 0.7723
-      },
-      "geodesic": {
-        "geodesic_area_sq_m": 37208.12,
-        "geodesic_length_m": 772.15
-      },
-      "properties": {
-        "Name": "Central Farm Parcel",
-        "Description": "Agricultural land polygon"
-      },
-      "notes": null
-    }
-  ]
-}
-```
-
 ---
 
 ### 4. Vector GeoJSON FeatureCollection
 `GET /api/files/{id}/geojson/`
-Returns standard GeoJSON FeatureCollection with calculated measurement properties attached to each feature for visual rendering.
-
----
-
-### 5. List Files
-`GET /api/files/`
-Returns list of all uploaded file records.
-
----
-
-### 6. Delete File
-`DELETE /api/files/{id}/`
-Deletes uploaded file and associated records from disk and database.
+Returns standard GeoJSON FeatureCollection with sanitized measurement properties for visual map rendering.
 
 ---
 
 ## 🛠️ Local Setup Guide
 
-### Prerequisites
-- Python 3.10+
-- Node.js v18+ & npm
-- GDAL C libraries (bundled with `fiona` / `pyogrio` wheels or installed via OS package manager)
-
-### 1. Clone Repository & Setup Backend
 ```bash
 # Activate Virtual Environment
-python -m venv venv
-source venv/bin/activate  # On Windows: .\venv\Scripts\Activate.ps1
+.\venv\Scripts\Activate.ps1
 
 # Install Dependencies
-pip install -r backend/requirements.txt greenlet pydantic-settings aiosqlite
-
-# Generate Sample KML & Shapefile datasets
-python backend/sample_data/create_samples.py
+pip install -r backend/requirements.txt greenlet pydantic-settings aiosqlite defusedxml
 
 # Run Pytest Test Suite
-pytest
+pytest -v
 
 # Start FastAPI Server
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
-FastAPI server will start at `http://localhost:8000`. Access Swagger UI docs at `http://localhost:8000/api/docs`.
-
-### 2. Run Frontend Web Dashboard
-```bash
-cd frontend
-npm install
-npm run dev
-```
-Open browser at `http://localhost:3000`.
 
 ---
 
 ## 🐳 Docker Deployment
-
-To build and launch both Backend and Frontend in containerized mode with Docker Compose:
 
 ```bash
 docker compose up --build
@@ -239,31 +166,3 @@ docker compose up --build
 - **Frontend UI**: `http://localhost:3000`
 - **Backend API**: `http://localhost:8000`
 - **Swagger Docs**: `http://localhost:8000/api/docs`
-
----
-
-## 💡 Key Design Decisions & Alternatives Considered
-
-1. **FastAPI vs. Django REST Framework**:
-   - *Decision*: Selected **FastAPI** due to native `asyncio` execution, auto-generated OpenAPI schemas, lower memory overhead, and seamless integration with Pydantic v2 type safety.
-2. **Dynamic UTM Zone Selection vs. Fixed EPSG:3857 (Web Mercator)**:
-   - *Decision*: Web Mercator (EPSG:3857) introduces significant area distortion away from the equator (up to 100%+ distortion near poles). Selected dynamic local UTM Zone projection (`EPSG:326XX` / `EPSG:327XX`) based on dataset centroid longitude/latitude to deliver sub-meter area precision.
-3. **GeoPandas & Fiona with Custom XML Fallback**:
-   - *Decision*: In minimal container environments where GDAL's `libkml` driver may be missing, direct `geopandas.read_file("file.kml")` can fail. Built a fallback XML ElementTree KML parser to guarantee 100% reliability for `.kml` uploads across all OS environments.
-4. **Asynchronous SQLite (aiosqlite) with PostGIS Compatibility**:
-   - *Decision*: Uses SQLAlchemy 2.0 Async Engine with SQLite for zero-config local execution, while keeping data models fully compatible with PostgreSQL/PostGIS.
-
----
-
-## 📚 Learnings & Future Scope
-
-### Learnings
-- **Geospatial Coordinate Math**: Handling angular degree distortion by computing local UTM projected CRS.
-- **Robust KML Parsing**: Resolving XML namespace variations in KML files.
-- **Async Python Architecture**: Managing file storage, Pydantic v2 validation, and async database transactions cleanly.
-
-### Future Enhancements
-- **PostGIS Spatial Indexing**: Integration of PostGIS `ST_Area` and `ST_Length` spatial indexes for multi-gigabyte dataset querying.
-- **Celery / Redis Distributed Workers**: Background task queue processing for multi-GB Shapefiles with WebSocket progress streaming.
-- **3D Geometry Support**: Z-coordinate elevation measurement (surface area and 3D slope distance calculation).
-- **Cloud Storage Integration**: Direct streaming uploads to AWS S3 / Google Cloud Storage.

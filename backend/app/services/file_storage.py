@@ -5,6 +5,7 @@ import logging
 from pathlib import Path
 from fastapi import UploadFile, HTTPException, status
 from app.config import settings
+from app.security import SecurityValidator
 
 logger = logging.getLogger("geospatial.storage")
 
@@ -12,7 +13,7 @@ class FileStorageService:
     @staticmethod
     def save_upload_file(upload_file: UploadFile) -> tuple[str, str, Path, int]:
         """
-        Validates uploaded file extension, size, and saves to storage directory.
+        Validates uploaded file extension, size, magic bytes, and saves to storage directory.
         Returns: (file_id, file_type, file_path, file_size)
         """
         filename = upload_file.filename or "uploaded_file"
@@ -44,7 +45,10 @@ class FileStorageService:
                     detail=f"File size exceeds maximum allowed limit of {settings.MAX_FILE_SIZE_MB}MB."
                 )
 
-            logger.info(f"File {filename} saved successfully as {saved_filename} ({file_size} bytes).")
+            # Security Magic Byte Verification (Detect spoofed file extensions)
+            SecurityValidator.validate_file_magic_bytes(target_path, file_ext)
+
+            logger.info(f"File {filename} verified and saved as {saved_filename} ({file_size} bytes).")
             return file_id, file_ext, target_path, file_size
 
         except Exception as e:
