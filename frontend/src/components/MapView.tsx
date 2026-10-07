@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { MapContainer, TileLayer, GeoJSON, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, GeoJSON, useMap, LayersControl } from 'react-leaflet';
 import L from 'leaflet';
 import { api } from '../services/api';
 import { GeoJSONFeatureCollection } from '../types';
-import { Map as MapIcon, Loader2, Maximize2 } from 'lucide-react';
+import { Map as MapIcon, Loader2, Globe, Eye } from 'lucide-react';
 
 interface MapViewProps {
   fileId: string | null;
@@ -34,6 +34,7 @@ const FitBounds: React.FC<{ data: GeoJSONFeatureCollection | null }> = ({ data }
 export const MapView: React.FC<MapViewProps> = ({ fileId, filename }) => {
   const [geoJsonData, setGeoJsonData] = useState<GeoJSONFeatureCollection | null>(null);
   const [loading, setLoading] = useState(false);
+  const [mapMode, setMapMode] = useState<'satellite' | 'street'>('satellite');
 
   useEffect(() => {
     if (!fileId) {
@@ -67,21 +68,21 @@ export const MapView: React.FC<MapViewProps> = ({ fileId, filename }) => {
     
     if (geomType === 'Polygon' || geomType === 'MultiPolygon') {
       return {
-        fillColor: '#0d9488',
+        fillColor: '#38bdf8',
         fillOpacity: 0.45,
-        color: '#14b8a6',
-        weight: 2,
+        color: '#0284c7',
+        weight: 2.5,
       };
     } else if (geomType === 'LineString' || geomType === 'MultiLineString') {
       return {
-        color: '#f59e0b',
+        color: '#fbbf24',
         weight: 4,
-        opacity: 0.85,
+        opacity: 0.9,
       };
     }
     return {
-      fillColor: '#ef4444',
-      color: '#dc2626',
+      fillColor: '#f43f5e',
+      color: '#e11d48',
       weight: 2,
       radius: 6,
     };
@@ -96,7 +97,7 @@ export const MapView: React.FC<MapViewProps> = ({ fileId, filename }) => {
     const lengthKm = props._length_km;
 
     let content = `<div class="p-2 min-w-[200px]">
-      <div class="font-bold text-emerald-400 text-sm border-b border-slate-700 pb-1 mb-2 flex items-center justify-between">
+      <div class="font-bold text-sky-400 text-sm border-b border-slate-700 pb-1 mb-2 flex items-center justify-between">
         <span>${geomType}</span>
         <span class="text-xs text-slate-400 font-mono">#${props._feature_index ?? 0}</span>
       </div>`;
@@ -104,7 +105,7 @@ export const MapView: React.FC<MapViewProps> = ({ fileId, filename }) => {
     if (area !== null && area !== undefined) {
       content += `<div class="text-xs text-slate-200 mb-1">
         <strong>Area:</strong> ${area.toLocaleString()} m² 
-        <span class="text-emerald-300">(${hectares} ha)</span>
+        <span class="text-sky-300">(${hectares} ha)</span>
       </div>`;
     }
 
@@ -115,7 +116,6 @@ export const MapView: React.FC<MapViewProps> = ({ fileId, filename }) => {
       </div>`;
     }
 
-    // Properties preview
     content += `<div class="text-[11px] text-slate-400 bg-slate-900/90 p-2 rounded border border-slate-800 font-mono overflow-x-auto max-h-24">`;
     const cleanProps = { ...props };
     delete cleanProps._measurement_status;
@@ -138,30 +138,66 @@ export const MapView: React.FC<MapViewProps> = ({ fileId, filename }) => {
     <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-xl flex flex-col h-[520px] relative">
       <div className="px-5 py-3.5 border-b border-slate-800 flex items-center justify-between bg-slate-900/80 backdrop-blur z-10">
         <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-          <MapIcon className="w-4 h-4 text-emerald-400" />
-          GIS Map Visualization {filename ? `— ${filename}` : ''}
+          <Globe className="w-4 h-4 text-sky-400" />
+          Satellite GIS Map {filename ? `— ${filename}` : ''}
         </h3>
-        {loading && (
-          <span className="text-xs text-emerald-400 flex items-center gap-1">
-            <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading vector features...
-          </span>
-        )}
+
+        <div className="flex items-center gap-3">
+          {loading && (
+            <span className="text-xs text-sky-400 flex items-center gap-1">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading vector features...
+            </span>
+          )}
+
+          {/* Map Layer Mode Toggle */}
+          <div className="flex items-center bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
+            <button
+              onClick={() => setMapMode('satellite')}
+              className={`px-2.5 py-1 rounded-md font-medium transition-colors ${
+                mapMode === 'satellite'
+                  ? 'bg-sky-600 text-white shadow'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Satellite View
+            </button>
+            <button
+              onClick={() => setMapMode('street')}
+              className={`px-2.5 py-1 rounded-md font-medium transition-colors ${
+                mapMode === 'street'
+                  ? 'bg-sky-600 text-white shadow'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Street View
+            </button>
+          </div>
+        </div>
       </div>
 
       <div className="flex-1 w-full h-full relative">
         <MapContainer
           center={[28.6139, 77.2090]}
-          zoom={12}
+          zoom={13}
           style={{ height: '100%', width: '100%' }}
         >
-          <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          />
+          {mapMode === 'satellite' ? (
+            <TileLayer
+              attribution='Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+              url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+              maxZoom={19}
+            />
+          ) : (
+            <TileLayer
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            />
+          )}
+
           {geoJsonData && (
             <>
               <GeoJSON
-                key={fileId || 'empty'}
+                key={`${fileId || 'empty'}_${mapMode}`}
                 data={geoJsonData as any}
                 style={styleFeature}
                 onEachFeature={onEachFeature}
@@ -173,10 +209,10 @@ export const MapView: React.FC<MapViewProps> = ({ fileId, filename }) => {
 
         {!fileId && (
           <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm flex flex-col items-center justify-center z-[1000] p-6 text-center">
-            <MapIcon className="w-12 h-12 text-slate-700 mb-3" />
+            <Globe className="w-12 h-12 text-slate-700 mb-3" />
             <p className="text-sm text-slate-300 font-medium">No Dataset Selected</p>
             <p className="text-xs text-slate-500 mt-1 max-w-sm">
-              Upload a .kml or .zip Shapefile or select a dataset from the list to render interactive map geometries.
+              Upload a .kml or .zip Shapefile or select a dataset from the list to render satellite GIS geometries.
             </p>
           </div>
         )}
